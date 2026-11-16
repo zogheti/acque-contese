@@ -84,6 +84,7 @@ const ui = {
     autoPlace: $("auto-place"),
     start: $("start-game"),
     soundToggle: $("sound-toggle"),
+    fullscreenToggle: $("fullscreen-toggle"),
     difficulty: $("difficulty"),
     turn: $("turn-count"),
     playerChip: $("player-board-chip"),
@@ -1067,6 +1068,27 @@ if (ui.soundToggle) {
         ui.soundToggle.textContent = game.soundEnabled ? "♫ Audio ON" : "♫ Audio OFF";
         ui.soundToggle.setAttribute("aria-pressed", String(game.soundEnabled));
         if (game.soundEnabled) playSound("click");
+    });
+}
+
+if (ui.fullscreenToggle) {
+    ui.fullscreenToggle.addEventListener("click", () => {
+        playSound("click");
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(err => {
+                console.warn("Impossibile attivare lo schermo intero:", err);
+            });
+        } else {
+            document.exitFullscreen().catch(() => { });
+        }
+    });
+
+    document.addEventListener("fullscreenchange", () => {
+        if (document.fullscreenElement) {
+            ui.fullscreenToggle.textContent = "⛶ Esci";
+        } else {
+            ui.fullscreenToggle.textContent = "⛶ Schermo intero";
+        }
     });
 }
 
