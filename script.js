@@ -1070,23 +1070,30 @@ function updateBattleStateFromFirebase(data) {
     checkWinConditionsMulti(data);
 }
 
+// Helper sicuro per convertire dati Firebase (array o oggetti numerici)
+function toArraySafe(val) {
+    if (!val) return [];
+    return Array.isArray(val) ? val : Object.values(val);
+}
+
 function handleMultiplayerShot(r, c) {
     if (game.phase !== "battle") return;
     const roomRefPath = `battaglia_rooms/${game.roomCode}`;
 
     get(ref(db, roomRefPath)).then(snapshot => {
         const data = snapshot.val();
-        if (!data || data.turn !== game.playerRole) return;
+        if (!data || data.turn !== game.playerRole || data.winner) return;
 
         const shotKey = key(r, c);
         if (game.myShots.has(shotKey)) return;
 
         const opponentRole = game.playerRole === "p1" ? "p2" : "p1";
-        const opponentShips = data[opponentRole]?.ships || [];
+        const opponentShips = toArraySafe(data[opponentRole]?.ships);
 
         let hitShip = null;
         for (const ship of opponentShips) {
-            if (ship.cells.some(([sr, sc]) => sr === r && sc === c)) {
+            const cells = toArraySafe(ship.cells);
+            if (cells.some(([sr, sc]) => sr === r && sc === c)) {
                 hitShip = ship;
                 break;
             }
@@ -1098,47 +1105,102 @@ function handleMultiplayerShot(r, c) {
         if (hitShip) playSound("hit");
         else playSound("water");
 
+        const myShotsArray = Array.from(game.myShots);
+        const myShotsSet = new Set(myShotsArray);
+
+        // Controlla subito se con questo colpo abbiamo affondato tutte le navi avversarie
+        const allEnemySunk = opponentShips.length > 0 && opponentShips.every(s => {
+            const cells = toArraySafe(s.cells);
+            return cells.length > 0 && cells.every(([sr, sc]) => myShotsSet.has(key(sr, sc)));
+        });
+
         update(ref(db, `${roomRefPath}/${game.playerRole}`), {
-            shotsFired: Array.from(game.myShots),
+            shotsFired: myShotsArray,
             shotResults: game.myShotResults
         }).then(() => {
-            const nextTurn = hitShip ? game.playerRole : opponentRole;
-            return set(ref(db, `${roomRefPath}/turn`), nextTurn);
-        });
+            if (allEnemySunk) {
+                return update(ref(db, roomRefPath), {
+                    winner: game.playerRole,
+                    turn: null
+                });
+            } else {
+                const nextTurn = hitShip ? game.playerRole : opponentRole;
+                return set(ref(db, `${roomRefPath}/turn`), nextTurn);
+            }
+        }).catch(err => console.error("Errore invio colpo:", err));
     });
 }
 
 function checkWinConditionsMulti(data) {
-    if (game.phase !== "battle") return;
+    if (game.phase !== "battle" && game.phase !== "finished") return;
+
+    // 1. Controllo diretto del flag winner su Firebase
+    if (data.winner) {
+        finishGameMulti(data.winner === game.playerRole);
+        return;
+    }
+
+    // 2. Controllo di riserva sul conteggio navi affondate
     const opponentRole = game.playerRole === "p1" ? "p2" : "p1";
     const myData = data[game.playerRole] || {};
     const opponentData = data[opponentRole] || {};
 
-    const myShips = game.playerShips;
-    const opponentShips = opponentData.ships || [];
-    const myShotsSet = new Set(myData.shotsFired || []);
-    const opponentShotsSet = new Set(opponentData.shotsFired || []);
+    const myShips = game.playerShips || [];
+    const opponentShips = toArraySafe(opponentData.ships);
+    const myShotsSet = new Set(toArraySafe(myData.shotsFired));
+    const opponentShotsSet = new Set(toArraySafe(opponentData.shotsFired));
 
-    let enemySunkCount = opponentShips.filter(s => s.cells.every(([r, c]) => myShotsSet.has(key(r, c)))).length;
-    let mySunkCount = myShips.filter(s => s.cells.every(([r, c]) => opponentShotsSet.has(key(r, c)))).length;
+    const enemySunkCount = opponentShips.filter(s => {
+        const cells = toArraySafe(s.cells);
+        return cells.length > 0 && cells.every(([r, c]) => myShotsSet.has(key(r, c)));
+    }).length;
 
-    if (ui.playerShipsLeft) ui.playerShipsLeft.textContent = myShips.length - mySunkCount;
-    if (ui.enemyShipsLeft) ui.enemyShipsLeft.textContent = opponentShips.length - enemySunkCount;
+    const mySunkCount = myShips.filter(s => {
+        const cells = toArraySafe(s.cells);
+        return cells.length > 0 && cells.every(([r, c]) => opponentShotsSet.has(key(r, c)));
+    }).length;
 
-    if (enemySunkCount === opponentShips.length && opponentShips.length > 0) finishGameMulti(true);
-    else if (mySunkCount === myShips.length && myShips.length > 0) finishGameMulti(false);
+    if (ui.playerShipsLeft) ui.playerShipsLeft.textContent = Math.max(0, myShips.length - mySunkCount);
+    if (ui.enemyShipsLeft) ui.enemyShipsLeft.textContent = Math.max(0, opponentShips.length - enemySunkCount);
+
+    if (opponentShips.length > 0 && enemySunkCount === opponentShips.length) {
+        if (game.roomCode) {
+            update(ref(db, `battaglia_rooms/${game.roomCode}`), { winner: game.playerRole }).catch(() => { });
+        }
+        finishGameMulti(true);
+    } else if (myShips.length > 0 && mySunkCount === myShips.length) {
+        if (game.roomCode) {
+            update(ref(db, `battaglia_rooms/${game.roomCode}`), { winner: opponentRole }).catch(() => { });
+        }
+        finishGameMulti(false);
+    }
 }
 
 function finishGameMulti(playerWon) {
+    if (game.phase === "finished") return;
     game.phase = "finished";
+
     if (ui.resultTitle) ui.resultTitle.textContent = playerWon ? "Vittoria!" : "Sconfitta";
-    if (ui.resultMessage) ui.resultMessage.textContent = playerWon ? "Hai distrutto la flotta avversaria!" : "La tua flotta è stata affondata.";
+    if (ui.resultMessage) {
+        ui.resultMessage.textContent = playerWon
+            ? "Hai distrutto la flotta avversaria!"
+            : "La tua flotta è stata affondata.";
+    }
+    if (ui.turn) ui.turn.textContent = "Partita conclusa";
+    setStatus(
+        playerWon ? "Vittoria!" : "Sconfitta",
+        playerWon ? "Missione compiuta, Comandante!" : "Tutte le tue navi sono state affondate.",
+        playerWon ? "cyan" : "red"
+    );
+
     playSound(playerWon ? "victory" : "defeat");
 
-    if (game.playerRole === "p1" && game.roomCode) {
-        remove(ref(db, `battaglia_rooms/${game.roomCode}`)).catch(() => { });
-    }
-    setTimeout(() => { if (ui.resultDialog) ui.resultDialog.showModal(); }, 1000);
+    const dialog = document.getElementById("result-dialog");
+    setTimeout(() => {
+        if (dialog && !dialog.open) {
+            dialog.showModal();
+        }
+    }, 600);
 }
 
 // --- RENDER COMUNE DELLE PLANCE ---
@@ -1270,6 +1332,9 @@ if (ui.roomMenuBtn && ui.roomConfirmDialog) {
 if (ui.confirmLeaveRoom) {
     ui.confirmLeaveRoom.addEventListener("click", () => {
         playSound("click");
+        if (game.mode === "multi" && game.roomCode && game.phase === "finished") {
+            remove(ref(db, `battaglia_rooms/${game.roomCode}`)).catch(() => { });
+        }
         location.reload();
     });
 }
@@ -1279,7 +1344,12 @@ if (ui.rulesToggle && ui.rulesDialog) {
 }
 
 if (ui.playAgain) {
-    ui.playAgain.addEventListener("click", () => location.reload());
+    ui.playAgain.addEventListener("click", () => {
+        if (game.mode === "multi" && game.roomCode) {
+            remove(ref(db, `battaglia_rooms/${game.roomCode}`)).catch(() => { });
+        }
+        location.reload();
+    });
 }
 
 document.addEventListener("keydown", (e) => {
