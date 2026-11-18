@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="it">
-npx serve
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +7,39 @@ npx serve
     <title>Battaglia Navale Multiplayer & Single Player</title>
     <link rel="icon" type="image/png" href="assets/icons/icona.gif">
     <link rel="stylesheet" href="style.css">
+    <style>
+        .star-btn {
+            font-size: 54px;
+            line-height: 1;
+            background: rgba(11, 52, 73, 0.85);
+            border: 2px solid var(--line, #1c5b7d);
+            border-radius: 16px;
+            padding: 16px 20px;
+            cursor: pointer;
+            color: #e8bd68;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            user-select: none;
+        }
+
+            .star-btn:hover:not(:disabled) {
+                transform: scale(1.12);
+                border-color: #e8bd68;
+                box-shadow: 0 0 18px rgba(232, 189, 104, 0.45);
+            }
+
+            .star-btn:disabled {
+                cursor: default;
+                opacity: 0.45;
+            }
+
+            .star-btn.chosen {
+                opacity: 1 !important;
+                border-color: #56d7e9;
+                background: rgba(20, 82, 112, 0.95);
+                box-shadow: 0 0 22px rgba(86, 215, 233, 0.6);
+                transform: scale(1.08);
+            }
+    </style>
 </head>
 <body>
     <main class="game-shell">
@@ -87,12 +119,47 @@ npx serve
                 <div class="board-card setup-board-card">
                     <div class="board-title">
                         <div><span class="board-kicker">IL TUO SETTORE</span><h3>La mia flotta</h3></div>
-                        <span class="board-chip" id="placed-count">0 / 7 posizionate</span>
+                        <span class="board-chip" id="placed-count">0 / 8 posizionate</span>
                     </div>
                     <div id="setup-board" class="board-wrap"></div>
                     <p class="board-hint">Seleziona una nave nella lista, poi clicca la casella iniziale. Clicca una nave già posizionata per rimuoverla.</p>
                 </div>
             </div>
+        </section>
+
+        <!-- SCHERMATA INTERMEDIA: ASSEGNAZIONE GRADO (SOLO MULTIPLAYER) -->
+        <section id="rank-panel" class="setup-panel hidden" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; padding: 28px 20px;">
+            <div class="setup-heading" style="display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 600px; width: 100%; margin-bottom: 16px;">
+                <div>
+                    <p class="eyebrow">FASE 02 • ORDINE DI COMANDO</p>
+                    <h2>Clicca sulla stella e scopri il tuo grado</h2>
+                    <p>Scegli una delle cinque stelle: il comandante con il grado più alto aprirà il fuoco per primo.</p>
+                </div>
+            </div>
+
+            <!-- 5 STELLE GRANDI -->
+            <div id="stars-container" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; margin: 16px 0 24px;">
+                <button type="button" class="star-btn" data-star="0" aria-label="Stella 1">★</button>
+                <button type="button" class="star-btn" data-star="1" aria-label="Stella 2">★</button>
+                <button type="button" class="star-btn" data-star="2" aria-label="Stella 3">★</button>
+                <button type="button" class="star-btn" data-star="3" aria-label="Stella 4">★</button>
+                <button type="button" class="star-btn" data-star="4" aria-label="Stella 5">★</button>
+            </div>
+
+            <!-- ESITO GRADI GIOCATORI -->
+            <div style="display: flex; flex-direction: column; gap: 10px; max-width: 480px; width: 100%; background: rgba(11, 52, 73, 0.65); border: 1px solid var(--line, #1c5b7d); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                <p id="my-rank-text" style="font-size: 17px; font-weight: bold; color: #56d7e9; margin: 0;">
+                    Seleziona una stella per scoprire il tuo grado...
+                </p>
+                <p id="opponent-rank-text" style="font-size: 16px; font-weight: bold; color: #e8bd68; margin: 0;">
+                    In attesa che l'avversario scelga la sua stella...
+                </p>
+                <p id="rank-turn-announcement" style="font-size: 14px; color: var(--text); margin: 6px 0 0; min-height: 20px;"></p>
+            </div>
+
+            <button id="begin-battle-btn" class="button button-primary" type="button" disabled style="min-width: 240px; font-size: 16px; padding: 12px 24px;">
+                Inizia la Battaglia →
+            </button>
         </section>
 
         <!-- SCHERMATA BATTAGLIA -->
@@ -123,8 +190,8 @@ npx serve
                     </div>
                     <span id="status-message">Sincronizzazione in corso...</span>
                 </div>
-                <div class="status-stat"><span>Navi tue</span><strong id="player-ships-left">7</strong></div>
-                <div class="status-stat"><span>Navi avversarie</span><strong id="enemy-ships-left">7</strong></div>
+                <div class="status-stat"><span>Navi tue</span><strong id="player-ships-left">8</strong></div>
+                <div class="status-stat"><span>Navi avversarie</span><strong id="enemy-ships-left">8</strong></div>
             </section>
         </section>
 
@@ -140,7 +207,7 @@ npx serve
             <p class="eyebrow">MANUALE OPERATIVO</p>
             <h2>Regole del gioco</h2>
             <ul>
-                <li>Ogni flotta contiene 7 navi e occupa 17 caselle.</li>
+                <li>Ogni flotta contiene 8 navi e occupa 18 caselle.</li>
                 <li>Le navi possono essere orizzontali o verticali, anche sui bordi.</li>
                 <li>Tra due navi deve esserci almeno una casella libera, anche diagonalmente.</li>
                 <li>A turno, clicca sul tabellone avversario per sparare. Chi colpisce guadagna un tiro extra.</li>
@@ -150,14 +217,15 @@ npx serve
         </form>
     </dialog>
 
-    <dialog id="result-dialog" class="modal result-modal">
+    <dialog id="room-confirm-dialog" class="modal result-modal">
         <form method="dialog">
-            <p class="eyebrow">MISSIONE CONCLUSA</p>
-            <h2 id="result-title">Vittoria!</h2>
-            <p id="result-message"></p>
+            <button class="modal-close" aria-label="Chiudi">×</button>
+            <p class="eyebrow">NAVIGAZIONE</p>
+            <h2>Torna alla Home</h2>
+            <p>Vuoi abbandonare la partita attuale e tornare alla schermata principale?</p>
             <div class="result-actions">
-                <button class="button button-primary" id="play-again" type="button">Torna alla Home</button>
-                <button class="button button-quiet" type="submit">Chiudi</button>
+                <button class="button button-primary" id="confirm-leave-room" type="button">Sì, torna alla Home</button>
+                <button class="button button-quiet" type="submit">Annulla</button>
             </div>
         </form>
     </dialog>

@@ -99,8 +99,24 @@ const ui = {
     btnModeSingle: $("btn-mode-single"),
     multiOptions: $("multi-options"),
     singleOptions: $("single-options"),
-    startSingleBtn: $("start-single-btn")
+    startSingleBtn: $("start-single-btn"),
+    rankPanel: $("rank-panel"),
+    starsContainer: $("stars-container"),
+    myRankText: $("my-rank-text"),
+    opponentRankText: $("opponent-rank-text"),
+    rankTurnAnnouncement: $("rank-turn-announcement"),
+    beginBattleBtn: $("begin-battle-btn"),
+    roomConfirmDialog: $("room-confirm-dialog"),
+    confirmLeaveRoom: $("confirm-leave-room"),
 };
+
+const RANKS = [
+    { name: "Ammiraglio", level: 5 },
+    { name: "Capitano", level: 4 },
+    { name: "Tenente", level: 3 },
+    { name: "Maresciallo", level: 2 },
+    { name: "Guardiamarina", level: 1 }
+];
 
 const MY_SESSION_ID = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
@@ -121,7 +137,11 @@ const game = {
     aiHitsInProgress: [],
     aiTargetQueue: [],
     previewCells: [],
-    opponentShips: []
+    opponentShips: [],
+    shuffledRanks: [],
+    myRank: null,
+    myStarIndex: null,
+    battleStartedByMe: false,
 };
 
 // --- GESTIONE CAMBIO MODALITÀ (MULTI / SINGLE) ---
@@ -544,6 +564,72 @@ if (ui.start) {
     });
 }
 
+function shuffleRanks() {
+    const copy = [...RANKS];
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+}
+
+function setupRankScreen() {
+    if (!game.shuffledRanks || game.shuffledRanks.length !== 5) {
+        game.shuffledRanks = shuffleRanks();
+    }
+    game.myRank = null;
+    game.myStarIndex = null;
+    game.battleStartedByMe = false;
+
+    if (ui.myRankText) ui.myRankText.textContent = "Seleziona una stella per scoprire il tuo grado...";
+    if (ui.opponentRankText) ui.opponentRankText.textContent = "In attesa che l'avversario scelga la sua stella...";
+    if (ui.rankTurnAnnouncement) ui.rankTurnAnnouncement.textContent = "";
+    if (ui.beginBattleBtn) {
+        ui.beginBattleBtn.disabled = true;
+        ui.beginBattleBtn.textContent = "Inizia la Battaglia →";
+    }
+
+    if (ui.starsContainer) {
+        const stars = ui.starsContainer.querySelectorAll(".star-btn");
+        stars.forEach((btn, idx) => {
+            btn.disabled = false;
+            btn.classList.remove("chosen");
+            btn.textContent = "★";
+            btn.title = "Clicca per scoprire il tuo grado";
+            btn.onclick = () => handleStarSelection(idx);
+        });
+    }
+}
+
+function handleStarSelection(starIndex) {
+    if (game.myRank || !game.roomCode || !game.playerRole) return;
+
+    const chosenRank = game.shuffledRanks[starIndex];
+    game.myRank = chosenRank;
+    game.myStarIndex = starIndex;
+    playSound("click");
+
+    if (ui.starsContainer) {
+        const stars = ui.starsContainer.querySelectorAll(".star-btn");
+        stars.forEach((btn, idx) => {
+            btn.disabled = true;
+            if (idx === starIndex) {
+                btn.classList.add("chosen");
+                btn.innerHTML = `★<div style="font-size: 13px; margin-top: 6px; color: #fff;">${chosenRank.name}</div>`;
+            }
+        });
+    }
+
+    if (ui.myRankText) {
+        ui.myRankText.textContent = `Tu giochi con il grado di ${chosenRank.name}`;
+    }
+
+    update(ref(db, `battaglia_rooms/${game.roomCode}/${game.playerRole}`), {
+        rank: chosenRank,
+        starIndex: starIndex
+    }).catch(err => console.error("Errore salvataggio grado:", err));
+}
+
 function startMultiplayerGame() {
     const serializedShips = game.playerShips.map(s => ({
         id: s.id,
@@ -555,17 +641,32 @@ function startMultiplayerGame() {
     update(ref(db, `battaglia_rooms/${game.roomCode}/${game.playerRole}`), {
         connected: true,
         ready: true,
+        battleReady: false,
+        rank: null,
+        starIndex: null,
         ships: serializedShips
     }).then(() => {
-        game.phase = "waiting_opponent";
+        game.phase = "rank_selection";
+        setupRankScreen();
         if (ui.setupPanel) ui.setupPanel.classList.add("hidden");
-        if (ui.battlePanel) ui.battlePanel.classList.remove("hidden");
-        if (ui.turn) ui.turn.textContent = "In attesa";
-        setStatus("In attesa dell'avversario", "Hai schierato la flotta. Aspettando che l'altro giocatore sia pronto...");
+        if (ui.rankPanel) ui.rankPanel.classList.remove("hidden");
         playSound("inizio");
-        renderBattleBoards();
     }).catch(err => {
         console.error("Errore invio flotta:", err);
+    });
+}
+
+if (ui.beginBattleBtn) {
+    ui.beginBattleBtn.addEventListener("click", () => {
+        if (!game.roomCode || !game.playerRole || game.battleStartedByMe) return;
+        game.battleStartedByMe = true;
+        playSound("click");
+        ui.beginBattleBtn.disabled = true;
+        ui.beginBattleBtn.textContent = "In attesa dell'avversario...";
+
+        update(ref(db, `battaglia_rooms/${game.roomCode}/${game.playerRole}`), {
+            battleReady: true
+        }).catch(err => console.error("Errore conferma avvio battaglia:", err));
     });
 }
 
@@ -815,8 +916,12 @@ async function connectToRoom(code) {
                 return {
                     p1: { connected: true, ready: false, sessionId: MY_SESSION_ID },
                     p2: { connected: false, ready: false, sessionId: null },
+                    rankOrder: shuffleRanks(),
                     turn: null
                 };
+            }
+            if (!current.rankOrder) {
+                current.rankOrder = shuffleRanks();
             }
             if (!p1Online || current.p1?.sessionId === MY_SESSION_ID) {
                 current.p1 = { connected: true, ready: false, sessionId: MY_SESSION_ID };
@@ -863,15 +968,81 @@ function initFirebaseListeners(roomRefPath) {
         const data = snapshot.val();
         if (!data) return;
 
-        const p1 = data.p1;
-        const p2 = data.p2;
-        if (p1 && p2 && p1.ready && p2.ready && (game.phase === "waiting_opponent" || game.phase === "setup")) {
-            game.phase = "battle";
-            if (game.playerRole === "p1" && !data.turn) {
-                set(ref(db, `${roomRefPath}/turn`), "p1");
-            }
+        // Sincronizza l'ordine condiviso delle 5 stelle della stanza
+        if (Array.isArray(data.rankOrder) && data.rankOrder.length === 5) {
+            game.shuffledRanks = data.rankOrder;
         }
-        if (game.phase === "battle" || game.phase === "waiting_opponent") {
+
+        const p1 = data.p1 || {};
+        const p2 = data.p2 || {};
+        const myData = data[game.playerRole] || {};
+        const opponentRole = game.playerRole === "p1" ? "p2" : "p1";
+        const opponentData = data[opponentRole] || {};
+
+        // FASE INTERMEDIA: SCELTA DEL GRADO CON LE 5 STELLE
+        if (game.phase === "rank_selection") {
+            if (myData.rank && ui.myRankText) {
+                ui.myRankText.textContent = `Tu giochi con il grado di ${myData.rank.name}`;
+            }
+
+            if (opponentData.rank) {
+                if (ui.opponentRankText) {
+                    ui.opponentRankText.textContent = `L'avversario gioca con il grado di ${opponentData.rank.name}`;
+                }
+
+                // Se non ho ancora scelto, disabilito la stella già presa dall'avversario
+                if (!game.myRank && typeof opponentData.starIndex === "number" && ui.starsContainer) {
+                    const oppBtn = ui.starsContainer.querySelector(`.star-btn[data-star="${opponentData.starIndex}"]`);
+                    if (oppBtn && !oppBtn.disabled) {
+                        oppBtn.disabled = true;
+                        oppBtn.title = `Già scelta dall'avversario (${opponentData.rank.name})`;
+                        oppBtn.innerHTML = `★<div style="font-size: 11px; margin-top: 6px; color: #e8bd68;">Presa</div>`;
+                    }
+                }
+            } else {
+                if (ui.opponentRankText) {
+                    ui.opponentRankText.textContent = "In attesa che l'avversario scelga la sua stella...";
+                }
+            }
+
+            // Entrambi hanno scelto la stella e schierato le navi
+            if (p1.ready && p2.ready && p1.rank && p2.rank) {
+                const firstTurn = p2.rank.level > p1.rank.level ? "p2" : "p1";
+
+                if (game.playerRole === "p1" && !data.turn) {
+                    set(ref(db, `${roomRefPath}/turn`), firstTurn);
+                }
+
+                const iAmFirst = firstTurn === game.playerRole;
+                const highestRankName = firstTurn === "p1" ? p1.rank.name : p2.rank.name;
+
+                if (ui.rankTurnAnnouncement) {
+                    ui.rankTurnAnnouncement.textContent = iAmFirst
+                        ? `${highestRankName} è il più alto in grado: giocherai per primo!`
+                        : `${highestRankName} è il più alto in grado: giocherà per primo l'avversario!`;
+                }
+
+                if (ui.beginBattleBtn && !game.battleStartedByMe) {
+                    ui.beginBattleBtn.disabled = false;
+                }
+            } else if (myData.rank && (!p2.ready || !p1.ready)) {
+                if (ui.rankTurnAnnouncement) {
+                    ui.rankTurnAnnouncement.textContent = "In attesa che l'avversario completi il posizionamento delle navi...";
+                }
+            }
+
+            // Quando entrambi cliccano "Inizia la Battaglia"
+            if (p1.battleReady && p2.battleReady && data.turn) {
+                game.phase = "battle";
+                if (ui.rankPanel) ui.rankPanel.classList.add("hidden");
+                if (ui.battlePanel) ui.battlePanel.classList.remove("hidden");
+                playSound("inizio");
+                updateBattleStateFromFirebase(data);
+            }
+            return;
+        }
+
+        if (game.phase === "battle") {
             updateBattleStateFromFirebase(data);
         }
     });
@@ -889,14 +1060,9 @@ function updateBattleStateFromFirebase(data) {
 
     renderBattleBoards();
 
-    if (game.phase === "waiting_opponent") {
-        if (ui.turn) ui.turn.textContent = "In attesa";
-        return;
-    }
-
     if (data.turn === game.playerRole) {
         if (ui.turn) ui.turn.textContent = "Tuo turno";
-        setStatus("È il tuo turno!", "Clicca sul settore avversario.", "cyan");
+        setStatus("È il tuo turno!", "Clicca sul settore avversario per fare fuoco.", "cyan");
     } else {
         if (ui.turn) ui.turn.textContent = "Turno avversario";
         setStatus("Turno avversario", "L'avversario sta mirando...", "gold");
@@ -1092,9 +1258,19 @@ if (ui.fullscreenToggle) {
     });
 }
 
-if (ui.roomMenuBtn) {
+if (ui.roomMenuBtn && ui.roomConfirmDialog) {
     ui.roomMenuBtn.addEventListener("click", () => {
-        if (confirm("Vuoi tornare alla schermata principale?")) location.reload();
+        playSound("click");
+        // Se siamo già nella schermata iniziale, non serve chiedere conferma
+        if (game.phase === "room") return;
+        ui.roomConfirmDialog.showModal();
+    });
+}
+
+if (ui.confirmLeaveRoom) {
+    ui.confirmLeaveRoom.addEventListener("click", () => {
+        playSound("click");
+        location.reload();
     });
 }
 
