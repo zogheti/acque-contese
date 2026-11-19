@@ -1027,7 +1027,7 @@ function initFirebaseListeners(roomRefPath) {
                 }
             } else if (myData.rank && (!p2.ready || !p1.ready)) {
                 if (ui.rankTurnAnnouncement) {
-                    ui.rankTurnAnnouncement.textContent = "In attesa che l'avversario completi il posizionamento delle navi...";
+                    ui.rankTurnAnnouncement.textContent = "In attesa che l'avversario posizioni la flotta...";
                 }
             }
 
