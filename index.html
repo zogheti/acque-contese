@@ -57,33 +57,47 @@
         <!-- SCHERMATA GESTIONE STANZA / SELEZIONE MODALITÀ -->
         <section id="room-panel" class="setup-panel" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; padding: 20px;">
 
-            <div class="setup-heading" style="display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 400px; width: 100%;">
+            <div class="setup-heading" style="display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 440px; width: 100%;">
                 <div>
                     <p class="eyebrow">SCELTA MODALITÀ</p>
                     <h2>Acque Contese</h2>
-                    <p>Scegli se sfidare un avversario online o giocare contro il computer.</p>
+                    <p>Inserisci il tuo nome e scegli se sfidare un avversario online o il computer.</p>
                 </div>
             </div>
 
+            <!-- NOME GIOCATORE -->
+            <div style="max-width: 440px; width: 100%; margin-bottom: 16px;">
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); width: 100%; text-align: left;">
+                    Il tuo Nome
+                    <input type="text" id="player-name-input" maxlength="20" placeholder="es. Marco" style="padding: 10px 12px; border-radius: 8px; background: #0b3449; border: 1px solid var(--line); color: var(--text); font-size: 15px; font-weight: 600; width: 100%; box-sizing: border-box;">
+                </label>
+            </div>
+
             <!-- SELETTORE MODALITÀ -->
-            <div id="mode-selector" style="display: flex; flex-direction: column; gap: 10px; max-width: 400px; width: 100%; margin-bottom: 20px; align-items: center;">
+            <div id="mode-selector" style="display: flex; flex-direction: column; gap: 10px; max-width: 440px; width: 100%; margin-bottom: 16px; align-items: center;">
                 <button id="btn-mode-single" class="button button-quiet" type="button" style="width: 100%;">Single Player</button>
                 <button id="btn-mode-multi" class="button button-primary" type="button" style="width: 100%;">Multiplayer Online</button>
             </div>
 
             <!-- PANNELLO MULTIPLAYER -->
-            <div id="multi-options" style="display: flex; flex-direction: column; gap: 14px; max-width: 400px; width: 100%; margin: 10px 0 20px; align-items: center;">
-                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); width: 100%; text-align: left;">
-                    Codice Stanza
-                    <input type="text" id="room-code-input" placeholder="es. xy01" style="padding: 10px; border-radius: 8px; background: #0b3449; border: 1px solid var(--line); color: var(--text); font-size: 16px; font-weight: bold; text-transform: uppercase; width: 100%; box-sizing: border-box;">
-                </label>
-                <div style="display: flex; gap: 10px; width: 100%;">
-                    <button id="join-room-btn" class="button button-primary" type="button" style="flex: 1; width: 100%;">Entra / Crea Stanza</button>
+            <div id="multi-options" style="display: flex; flex-direction: column; gap: 14px; max-width: 440px; width: 100%; margin: 6px 0 16px; align-items: center;">
+                <button id="create-room-btn" class="button button-primary" type="button" style="width: 100%; font-size: 13px;">
+                    + Crea Nuova Stanza Online
+                </button>
+
+                <div class="active-rooms-wrapper">
+                    <div class="active-rooms-header">
+                        <span>STANZE ATTIVE</span>
+                        <span id="rooms-live-badge" class="live-badge">● LIVE</span>
+                    </div>
+                    <div id="active-rooms-list" class="active-rooms-list">
+                        <div class="rooms-empty">Ricerca stanze attive...</div>
+                    </div>
                 </div>
             </div>
 
             <!-- PANNELLO SINGLE PLAYER -->
-            <div id="single-options" class="hidden" style="display: flex; flex-direction: column; gap: 14px; max-width: 400px; width: 100%; margin: 10px 0 20px; align-items: center;">
+            <div id="single-options" class="hidden" style="display: flex; flex-direction: column; gap: 14px; max-width: 440px; width: 100%; margin: 6px 0 16px; align-items: center;">
                 <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); width: 100%; text-align: left;">
                     Difficoltà CPU
                     <select id="difficulty" style="padding: 10px; border-radius: 8px; background: #0b3449; border: 1px solid var(--line); color: var(--text); font-size: 14px; width: 100%; box-sizing: border-box;">
@@ -97,7 +111,42 @@
                 </div>
             </div>
 
-            <div id="room-status-box" style="color: var(--cyan); font-size: 13px; font-weight: bold; text-align: center;"></div>
+            <div id="room-status-box" style="color: var(--cyan); font-size: 13px; font-weight: bold; text-align: center; min-height: 18px;"></div>
+        </section>
+
+        <!-- SCHERMATA DI ATTESA AVVERSARIO (SOLO MULTIPLAYER) -->
+        <section id="waiting-panel" class="setup-panel hidden" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; padding: 32px 20px;">
+            <div class="setup-heading" style="display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 480px; width: 100%;">
+                <div>
+                    <p class="eyebrow">SALA D'ATTESA ONLINE</p>
+                    <h2 id="waiting-title">In attesa del secondo giocatore</h2>
+                    <p id="waiting-subtitle">Quando entrambi i giocatori sono nella stanza, clicca su Avvia Partita per schierare le flotte.</p>
+                </div>
+            </div>
+
+            <div class="waiting-card">
+                <div class="waiting-spinner" aria-hidden="true"></div>
+                <div class="waiting-slots">
+                    <div class="waiting-slot">
+                        <span>GIOCATORE 1</span>
+                        <strong id="waiting-p1-name">In attesa...</strong>
+                    </div>
+                    <div class="waiting-slot">
+                        <span>GIOCATORE 2</span>
+                        <strong id="waiting-p2-name">In attesa...</strong>
+                    </div>
+                </div>
+                <div id="waiting-counter" class="waiting-counter">Giocatori nella stanza: 1 / 2</div>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px;">
+                <button id="start-from-waiting-btn" class="button button-primary" type="button" disabled style="min-width: 190px;">
+                    Avvia Partita →
+                </button>
+                <button id="cancel-waiting-btn" class="button button-quiet" type="button">
+                    ← Annulla e torna alle stanze
+                </button>
+            </div>
         </section>
 
         <!-- SCHERMATA POSIZIONAMENTO (SETUP) -->
@@ -147,7 +196,7 @@
             </div>
 
             <!-- ESITO GRADI GIOCATORI -->
-            <div style="display: flex; flex-direction: column; gap: 10px; max-width: 480px; width: 100%; background: rgba(11, 52, 73, 0.65); border: 1px solid var(--line, #1c5b7d); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+            <div style="display: flex; flex-direction: column; gap: 10px; max-width: 520px; width: 100%; background: rgba(11, 52, 73, 0.65); border: 1px solid var(--line, #1c5b7d); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
                 <p id="my-rank-text" style="font-size: 17px; font-weight: bold; color: #56d7e9; margin: 0;">
                     Seleziona una stella per scoprire il tuo grado...
                 </p>
@@ -196,7 +245,7 @@
         </section>
 
         <footer class="footer">
-            <span>Operazione Mare Aperto - Creato da S1LV4N0 e KameNoEma</span>
+            <span>Operazione Acque Contese - Creato da S1LV4N0 e KameNoEma</span>
             <button id="rules-toggle" class="text-button" type="button">Regole del gioco</button>
         </footer>
     </main>

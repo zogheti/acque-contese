@@ -1,4 +1,4 @@
-/* Battaglia Navale - Multiplayer & Single Player (Fix Completo) */
+/* Battaglia Navale - Multiplayer & Single Player (Pulsante Avvia Partita in Sala d'Attesa) */
 "use strict";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -64,8 +64,18 @@ const $ = id => document.getElementById(id);
 
 const ui = {
     roomPanel: $("room-panel"),
-    roomCodeInput: $("room-code-input"),
-    joinRoomBtn: $("join-room-btn"),
+    waitingPanel: $("waiting-panel"),
+    waitingTitle: $("waiting-title"),
+    waitingSubtitle: $("waiting-subtitle"),
+    waitingP1Name: $("waiting-p1-name"),
+    waitingP2Name: $("waiting-p2-name"),
+    waitingCounter: $("waiting-counter"),
+    startFromWaitingBtn: $("start-from-waiting-btn"),
+    cancelWaitingBtn: $("cancel-waiting-btn"),
+    playerNameInput: $("player-name-input"),
+    createRoomBtn: $("create-room-btn"),
+    activeRoomsList: $("active-rooms-list"),
+    roomsLiveBadge: $("rooms-live-badge"),
     roomStatusBox: $("room-status-box"),
     roomMenuBtn: $("room-menu-btn"),
     statusTitle: $("status-title"),
@@ -122,6 +132,8 @@ const MY_SESSION_ID = `${Date.now()}-${Math.random().toString(36).substring(2, 9
 
 const game = {
     mode: "multi", // "multi" oppure "single"
+    playerName: "",
+    opponentName: "Avversario",
     roomCode: null,
     playerRole: null,
     playerShips: [],
@@ -131,7 +143,7 @@ const game = {
     myShotResults: {},
     selectedShipId: null,
     orientation: "H",
-    phase: "room",
+    phase: "room", // "room" | "waiting" | "setup" | "rank_selection" | "battle" | "finished"
     soundEnabled: true,
     busy: false,
     aiHitsInProgress: [],
@@ -140,9 +152,155 @@ const game = {
     opponentShips: [],
     shuffledRanks: [],
     myRank: null,
+    opponentRank: null,
     myStarIndex: null,
     battleStartedByMe: false,
+    latestRoomsSnapshot: {},
+    lobbyTimer: null
 };
+
+// Ripristina l'eventuale nome salvato in precedenza
+if (ui.playerNameInput) {
+    const savedName = localStorage.getItem("acque_contese_player_name");
+    if (savedName) ui.playerNameInput.value = savedName;
+    ui.playerNameInput.addEventListener("input", () => {
+        localStorage.setItem("acque_contese_player_name", ui.playerNameInput.value.trim());
+    });
+}
+
+function getChosenPlayerName() {
+    const raw = ui.playerNameInput ? ui.playerNameInput.value.trim() : "";
+    const clean = raw.replace(/\s+/g, " ").slice(0, 20);
+    if (clean) {
+        localStorage.setItem("acque_contese_player_name", clean);
+        return clean;
+    }
+    return "Comandante";
+}
+
+function formatFullTitle(rankObj, playerName) {
+    const name = (playerName && playerName.trim()) ? playerName.trim() : "Comandante";
+    if (rankObj && rankObj.name) {
+        return `${rankObj.name} ${name}`;
+    }
+    return name;
+}
+
+// --- GESTIONE LOBBY STANZE ATTIVE (AGGIORNAMENTO OGNI SECONDO) ---
+
+function startLobbySync() {
+    const roomsRef = ref(db, "battaglia_rooms");
+
+    onValue(roomsRef, snapshot => {
+        game.latestRoomsSnapshot = snapshot.val() || {};
+        if (game.phase === "room") {
+            renderActiveRooms();
+        }
+    });
+
+    if (game.lobbyTimer) clearInterval(game.lobbyTimer);
+    game.lobbyTimer = setInterval(() => {
+        if (game.phase !== "room") return;
+        get(roomsRef).then(snapshot => {
+            game.latestRoomsSnapshot = snapshot.val() || {};
+            renderActiveRooms();
+        }).catch(() => {
+            renderActiveRooms();
+        });
+    }, 1000);
+}
+
+function renderActiveRooms() {
+    if (!ui.activeRoomsList) return;
+
+    if (ui.roomsLiveBadge) {
+        const sec = new Date().getSeconds();
+        ui.roomsLiveBadge.style.opacity = sec % 2 === 0 ? "1" : "0.55";
+    }
+
+    const roomsObj = game.latestRoomsSnapshot || {};
+    const entries = Object.entries(roomsObj);
+    const activeRooms = [];
+
+    for (const [roomId, roomData] of entries) {
+        if (!roomData || typeof roomData !== "object") continue;
+
+        const p1Online = roomData.p1?.connected === true;
+        const p2Online = roomData.p2?.connected === true;
+
+        if (!p1Online && !p2Online) {
+            remove(ref(db, `battaglia_rooms/${roomId}`)).catch(() => { });
+            continue;
+        }
+
+        const playersCount = (p1Online ? 1 : 0) + (p2Online ? 1 : 0);
+        const hostName = p1Online
+            ? (roomData.p1?.name || "Comandante")
+            : (roomData.p2?.name || "Comandante");
+
+        activeRooms.push({
+            id: roomId,
+            hostName,
+            playersCount,
+            isFull: playersCount >= 2 || Boolean(roomData.winner),
+            createdAt: roomData.createdAt || 0
+        });
+    }
+
+    activeRooms.sort((a, b) => {
+        if (a.isFull !== b.isFull) return a.isFull ? 1 : -1;
+        return b.createdAt - a.createdAt;
+    });
+
+    ui.activeRoomsList.innerHTML = "";
+
+    if (activeRooms.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "rooms-empty";
+        empty.textContent = "Nessuna stanza attiva al momento. Creane una!";
+        ui.activeRoomsList.appendChild(empty);
+        return;
+    }
+
+    activeRooms.forEach(room => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "room-card";
+        btn.disabled = room.isFull;
+
+        const info = document.createElement("div");
+        info.className = "room-card-info";
+
+        const title = document.createElement("strong");
+        title.textContent = `Stanza di ${room.hostName}`;
+
+        const sub = document.createElement("small");
+        sub.textContent = room.isFull
+            ? "Partita in corso (2/2 giocatori)"
+            : "Clicca per entrare nella stanza";
+
+        info.append(title, sub);
+
+        const badge = document.createElement("span");
+        badge.className = "room-card-badge";
+        badge.textContent = room.isFull ? "2/2 PIENA" : "1/2 ENTRA →";
+
+        btn.append(info, badge);
+
+        if (!room.isFull) {
+            btn.addEventListener("click", () => {
+                playSound("click");
+                game.mode = "multi";
+                game.playerName = getChosenPlayerName();
+                connectToRoom(room.id);
+            });
+        }
+
+        ui.activeRoomsList.appendChild(btn);
+    });
+}
+
+startLobbySync();
 
 // --- GESTIONE CAMBIO MODALITÀ (MULTI / SINGLE) ---
 if (ui.btnModeMulti && ui.btnModeSingle) {
@@ -525,30 +683,60 @@ function autoPlacePlayer() {
     renderSetupBoard();
 }
 
-// --- GESTIONE ACCESSO STANZA / SINGLE PLAYER ---
+// --- GESTIONE CREAZIONE STANZA / SINGLE PLAYER ---
 
-if (ui.joinRoomBtn) {
-    ui.joinRoomBtn.addEventListener("click", () => {
-        const code = ui.roomCodeInput.value.trim().toUpperCase();
-        if (!code) {
-            alert("Inserisci un codice stanza valido!");
-            return;
-        }
+if (ui.createRoomBtn) {
+    ui.createRoomBtn.addEventListener("click", () => {
+        playSound("click");
         game.mode = "multi";
-        connectToRoom(code);
+        game.playerName = getChosenPlayerName();
+        const newRoomCode = `ROOM_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        connectToRoom(newRoomCode, true);
+    });
+}
+
+if (ui.startFromWaitingBtn) {
+    ui.startFromWaitingBtn.addEventListener("click", () => {
+        if (!game.roomCode || ui.startFromWaitingBtn.disabled) return;
+        playSound("click");
+        ui.startFromWaitingBtn.disabled = true;
+        ui.startFromWaitingBtn.textContent = "Avvio in corso...";
+        set(ref(db, `battaglia_rooms/${game.roomCode}/matchStarted`), true)
+            .then(() => {
+                enterSetupPhaseFromWaiting();
+            })
+            .catch(err => {
+                console.error("Errore avvio partita:", err);
+                ui.startFromWaitingBtn.disabled = false;
+                ui.startFromWaitingBtn.textContent = "Avvia Partita →";
+            });
+    });
+}
+
+if (ui.cancelWaitingBtn) {
+    ui.cancelWaitingBtn.addEventListener("click", () => {
+        playSound("click");
+        if (game.mode === "multi" && game.roomCode && game.playerRole) {
+            update(ref(db, `battaglia_rooms/${game.roomCode}/${game.playerRole}`), {
+                connected: false,
+                ready: false
+            }).catch(() => { });
+        }
+        location.reload();
     });
 }
 
 if (ui.startSingleBtn) {
     ui.startSingleBtn.addEventListener("click", () => {
         game.mode = "single";
+        game.playerName = getChosenPlayerName();
         if (ui.roomPanel) ui.roomPanel.classList.add("hidden");
         if (ui.setupPanel) ui.setupPanel.classList.remove("hidden");
         game.phase = "setup";
         game.playerShips = makeFleet();
         game.selectedShipId = game.playerShips[0].id;
         renderSetupBoard();
-        setStatus("Schiera la tua flotta", "Modalità Singolo Giocatore - Posiziona le tue navi.");
+        setStatus("Schiera la tua flotta", `${game.playerName}, posiziona le tue navi.`);
     });
 }
 
@@ -581,7 +769,7 @@ function setupRankScreen() {
     game.myStarIndex = null;
     game.battleStartedByMe = false;
 
-    if (ui.myRankText) ui.myRankText.textContent = "Seleziona una stella per scoprire il tuo grado...";
+    if (ui.myRankText) ui.myRankText.textContent = `${game.playerName}, seleziona una stella per scoprire il tuo grado...`;
     if (ui.opponentRankText) ui.opponentRankText.textContent = "In attesa che l'avversario scelga la sua stella...";
     if (ui.rankTurnAnnouncement) ui.rankTurnAnnouncement.textContent = "";
     if (ui.beginBattleBtn) {
@@ -621,7 +809,7 @@ function handleStarSelection(starIndex) {
     }
 
     if (ui.myRankText) {
-        ui.myRankText.textContent = `Tu giochi con il grado di ${chosenRank.name}`;
+        ui.myRankText.textContent = `Tu sei: ${formatFullTitle(chosenRank, game.playerName)}`;
     }
 
     update(ref(db, `battaglia_rooms/${game.roomCode}/${game.playerRole}`), {
@@ -640,6 +828,7 @@ function startMultiplayerGame() {
 
     update(ref(db, `battaglia_rooms/${game.roomCode}/${game.playerRole}`), {
         connected: true,
+        name: game.playerName,
         ready: true,
         battleReady: false,
         rank: null,
@@ -686,11 +875,11 @@ function startSinglePlayerGame() {
 
     if (ui.setupPanel) ui.setupPanel.classList.add("hidden");
     if (ui.battlePanel) ui.battlePanel.classList.remove("hidden");
-    if (ui.playerChip) ui.playerChip.textContent = "In difesa";
-    if (ui.enemyChip) ui.enemyChip.textContent = "Bersagli nascosti";
+    if (ui.playerChip) ui.playerChip.textContent = game.playerName;
+    if (ui.enemyChip) ui.enemyChip.textContent = "CPU";
 
     renderBattleBoards();
-    setStatus("Battaglia Iniziata", "Seleziona una casella nemica per sparare.", "cyan");
+    setStatus("Battaglia Iniziata", `${game.playerName}, seleziona una casella nemica per sparare.`, "cyan");
     playSound("inizio");
 }
 
@@ -895,17 +1084,66 @@ function finishGameSingle(playerWon) {
     game.phase = "finished";
     game.busy = false;
     if (ui.resultTitle) ui.resultTitle.textContent = playerWon ? "Vittoria!" : "Sconfitta";
-    if (ui.resultMessage) ui.resultMessage.textContent = playerWon ? "Hai distrutto la flotta del computer!" : "La tua flotta è stata distrutta.";
+    if (ui.resultMessage) ui.resultMessage.textContent = playerWon ? `${game.playerName}, hai distrutto la flotta del computer!` : "La tua flotta è stata distrutta.";
     playSound(playerWon ? "victory" : "defeat");
     setTimeout(() => { if (ui.resultDialog) ui.resultDialog.showModal(); }, 1000);
 }
 
 // --- LOGICA MULTIPLAYER FIREBASE ---
 
-async function connectToRoom(code) {
+function enterSetupPhaseFromWaiting() {
+    if (game.phase !== "waiting") return;
+    game.phase = "setup";
+    game.playerShips = makeFleet();
+    game.selectedShipId = game.playerShips[0].id;
+
+    if (ui.waitingPanel) ui.waitingPanel.classList.add("hidden");
+    if (ui.setupPanel) ui.setupPanel.classList.remove("hidden");
+
+    renderSetupBoard();
+    setStatus(
+        "Schiera la tua flotta",
+        `${game.playerName} (${game.playerRole === "p1" ? "Giocatore 1" : "Giocatore 2"}) — Posiziona le navi.`
+    );
+    playSound("inizio");
+}
+
+function updateWaitingUI(p1, p2) {
+    const p1Online = p1?.connected === true;
+    const p2Online = p2?.connected === true;
+    const count = (p1Online ? 1 : 0) + (p2Online ? 1 : 0);
+    const bothConnected = p1Online && p2Online;
+
+    if (ui.waitingP1Name) {
+        ui.waitingP1Name.textContent = p1Online ? (p1.name || "Comandante") : "In attesa...";
+    }
+    if (ui.waitingP2Name) {
+        ui.waitingP2Name.textContent = p2Online ? (p2.name || "Comandante") : "In attesa...";
+    }
+    if (ui.waitingCounter) {
+        ui.waitingCounter.textContent = `Giocatori nella stanza: ${count} / 2`;
+    }
+    if (ui.waitingTitle) {
+        ui.waitingTitle.textContent = bothConnected
+            ? "Entrambi i giocatori sono pronti!"
+            : "In attesa del secondo giocatore";
+    }
+    if (ui.startFromWaitingBtn) {
+        ui.startFromWaitingBtn.disabled = !bothConnected;
+        ui.startFromWaitingBtn.textContent = bothConnected
+            ? "Avvia Partita →"
+            : "In attesa del 2° giocatore...";
+    }
+}
+
+async function connectToRoom(code, isCreating = false) {
     const roomRefPath = `battaglia_rooms/${code}`;
     const roomRef = ref(db, roomRefPath);
-    if (ui.roomStatusBox) ui.roomStatusBox.textContent = "Connessione alla stanza in corso...";
+    if (ui.roomStatusBox) {
+        ui.roomStatusBox.textContent = isCreating
+            ? "Creazione stanza in corso..."
+            : "Accesso alla stanza in corso...";
+    }
 
     try {
         const txResult = await runTransaction(roomRef, (current) => {
@@ -914,8 +1152,10 @@ async function connectToRoom(code) {
 
             if (current === null || (!p1Online && !p2Online)) {
                 return {
-                    p1: { connected: true, ready: false, sessionId: MY_SESSION_ID },
-                    p2: { connected: false, ready: false, sessionId: null },
+                    createdAt: Date.now(),
+                    matchStarted: false,
+                    p1: { connected: true, ready: false, sessionId: MY_SESSION_ID, name: game.playerName },
+                    p2: { connected: false, ready: false, sessionId: null, name: null },
                     rankOrder: shuffleRanks(),
                     turn: null
                 };
@@ -924,18 +1164,18 @@ async function connectToRoom(code) {
                 current.rankOrder = shuffleRanks();
             }
             if (!p1Online || current.p1?.sessionId === MY_SESSION_ID) {
-                current.p1 = { connected: true, ready: false, sessionId: MY_SESSION_ID };
+                current.p1 = { connected: true, ready: false, sessionId: MY_SESSION_ID, name: game.playerName };
                 return current;
             }
             if (!p2Online || current.p2?.sessionId === MY_SESSION_ID) {
-                current.p2 = { connected: true, ready: false, sessionId: MY_SESSION_ID };
+                current.p2 = { connected: true, ready: false, sessionId: MY_SESSION_ID, name: game.playerName };
                 return current;
             }
             return;
         });
 
         if (!txResult.committed) {
-            if (ui.roomStatusBox) ui.roomStatusBox.textContent = "Stanza piena! Entrambi i giocatori sono già presenti.";
+            if (ui.roomStatusBox) ui.roomStatusBox.textContent = "Stanza già piena! Scegli un'altra stanza attiva.";
             return;
         }
 
@@ -944,21 +1184,22 @@ async function connectToRoom(code) {
         else if (roomData?.p2?.sessionId === MY_SESSION_ID) game.playerRole = "p2";
 
         game.roomCode = code;
+        game.phase = "waiting";
         onDisconnect(ref(db, `${roomRefPath}/${game.playerRole}`)).update({ connected: false, ready: false });
 
+        if (ui.roomStatusBox) ui.roomStatusBox.textContent = "";
         if (ui.roomPanel) ui.roomPanel.classList.add("hidden");
-        if (ui.setupPanel) ui.setupPanel.classList.remove("hidden");
-        game.phase = "setup";
-        game.playerShips = makeFleet();
-        game.selectedShipId = game.playerShips[0].id;
+        if (ui.waitingPanel) ui.waitingPanel.classList.remove("hidden");
 
-        renderSetupBoard();
-        setStatus("Schiera la tua flotta", `Connesso come Giocatore ${game.playerRole === "p1" ? "1" : "2"}.`);
-        if (ui.roomStatusBox) ui.roomStatusBox.textContent = `Connesso correttamente come ${game.playerRole.toUpperCase()}.`;
-
+        updateWaitingUI(roomData?.p1, roomData?.p2);
         initFirebaseListeners(roomRefPath);
+
+        if (roomData?.matchStarted === true && roomData?.p1?.connected === true && roomData?.p2?.connected === true) {
+            enterSetupPhaseFromWaiting();
+        }
     } catch (error) {
         console.error("Errore connessione:", error);
+        if (ui.roomStatusBox) ui.roomStatusBox.textContent = "Errore di connessione. Riprova.";
     }
 }
 
@@ -979,15 +1220,34 @@ function initFirebaseListeners(roomRefPath) {
         const opponentRole = game.playerRole === "p1" ? "p2" : "p1";
         const opponentData = data[opponentRole] || {};
 
+        if (opponentData.name) {
+            game.opponentName = opponentData.name;
+        }
+        if (opponentData.rank) {
+            game.opponentRank = opponentData.rank;
+        }
+
+        // SALA D'ATTESA: aggiorna stato 1/2 o 2/2 e passa al setup quando si clicca "Avvia Partita"
+        if (game.phase === "waiting") {
+            updateWaitingUI(p1, p2);
+            if (data.matchStarted === true && p1.connected === true && p2.connected === true) {
+                enterSetupPhaseFromWaiting();
+            }
+            return;
+        }
+
+        const myFullTitle = formatFullTitle(myData.rank || game.myRank, game.playerName);
+        const oppFullTitle = formatFullTitle(opponentData.rank || game.opponentRank, game.opponentName);
+
         // FASE INTERMEDIA: SCELTA DEL GRADO CON LE 5 STELLE
         if (game.phase === "rank_selection") {
             if (myData.rank && ui.myRankText) {
-                ui.myRankText.textContent = `Tu giochi con il grado di ${myData.rank.name}`;
+                ui.myRankText.textContent = `Tu giochi come: ${myFullTitle}`;
             }
 
             if (opponentData.rank) {
                 if (ui.opponentRankText) {
-                    ui.opponentRankText.textContent = `L'avversario gioca con il grado di ${opponentData.rank.name}`;
+                    ui.opponentRankText.textContent = `Avversario: ${oppFullTitle}`;
                 }
 
                 // Se non ho ancora scelto, disabilito la stella già presa dall'avversario
@@ -995,13 +1255,13 @@ function initFirebaseListeners(roomRefPath) {
                     const oppBtn = ui.starsContainer.querySelector(`.star-btn[data-star="${opponentData.starIndex}"]`);
                     if (oppBtn && !oppBtn.disabled) {
                         oppBtn.disabled = true;
-                        oppBtn.title = `Già scelta dall'avversario (${opponentData.rank.name})`;
+                        oppBtn.title = `Già scelta da ${oppFullTitle}`;
                         oppBtn.innerHTML = `★<div style="font-size: 11px; margin-top: 6px; color: #e8bd68;">Presa</div>`;
                     }
                 }
             } else {
                 if (ui.opponentRankText) {
-                    ui.opponentRankText.textContent = "In attesa che l'avversario scelga la sua stella...";
+                    ui.opponentRankText.textContent = `In attesa che ${game.opponentName} scelga la sua stella...`;
                 }
             }
 
@@ -1014,12 +1274,12 @@ function initFirebaseListeners(roomRefPath) {
                 }
 
                 const iAmFirst = firstTurn === game.playerRole;
-                const highestRankName = firstTurn === "p1" ? p1.rank.name : p2.rank.name;
+                const firstPlayerTitle = iAmFirst ? myFullTitle : oppFullTitle;
 
                 if (ui.rankTurnAnnouncement) {
                     ui.rankTurnAnnouncement.textContent = iAmFirst
-                        ? `${highestRankName} è il più alto in grado: giocherai per primo!`
-                        : `${highestRankName} è il più alto in grado: giocherà per primo l'avversario!`;
+                        ? `${firstPlayerTitle} è il più alto in grado: aprirai il fuoco per primo!`
+                        : `${firstPlayerTitle} è il più alto in grado: aprirà il fuoco per primo!`;
                 }
 
                 if (ui.beginBattleBtn && !game.battleStartedByMe) {
@@ -1027,7 +1287,7 @@ function initFirebaseListeners(roomRefPath) {
                 }
             } else if (myData.rank && (!p2.ready || !p1.ready)) {
                 if (ui.rankTurnAnnouncement) {
-                    ui.rankTurnAnnouncement.textContent = "In attesa che l'avversario posizioni la flotta...";
+                    ui.rankTurnAnnouncement.textContent = `In attesa che ${game.opponentName} posizioni la flotta...`;
                 }
             }
 
@@ -1054,6 +1314,16 @@ function updateBattleStateFromFirebase(data) {
     const opponentData = data[opponentRole] || {};
     game.opponentShips = opponentData.ships || [];
 
+    if (opponentData.name) game.opponentName = opponentData.name;
+    if (opponentData.rank) game.opponentRank = opponentData.rank;
+    if (myData.rank) game.myRank = myData.rank;
+
+    const myFullTitle = formatFullTitle(game.myRank, game.playerName);
+    const oppFullTitle = formatFullTitle(game.opponentRank, game.opponentName);
+
+    if (ui.playerChip) ui.playerChip.textContent = myFullTitle;
+    if (ui.enemyChip) ui.enemyChip.textContent = oppFullTitle;
+
     game.myShots = new Set(myData.shotsFired || []);
     game.myShotResults = myData.shotResults || {};
     game.opponentShots = new Set(opponentData.shotsFired || []);
@@ -1061,11 +1331,11 @@ function updateBattleStateFromFirebase(data) {
     renderBattleBoards();
 
     if (data.turn === game.playerRole) {
-        if (ui.turn) ui.turn.textContent = "Tuo turno";
-        setStatus("È il tuo turno!", "Clicca sul settore avversario per fare fuoco.", "cyan");
+        if (ui.turn) ui.turn.textContent = `Turno di ${myFullTitle}`;
+        setStatus(`Tocca a te, ${myFullTitle}!`, `Clicca sul settore di ${oppFullTitle} per fare fuoco.`, "cyan");
     } else {
-        if (ui.turn) ui.turn.textContent = "Turno avversario";
-        setStatus("Turno avversario", "L'avversario sta mirando...", "gold");
+        if (ui.turn) ui.turn.textContent = `Turno di ${oppFullTitle}`;
+        setStatus(`Turno di ${oppFullTitle}`, `${oppFullTitle} sta prendendo la mira...`, "gold");
     }
     checkWinConditionsMulti(data);
 }
@@ -1108,7 +1378,6 @@ function handleMultiplayerShot(r, c) {
         const myShotsArray = Array.from(game.myShots);
         const myShotsSet = new Set(myShotsArray);
 
-        // Controlla subito se con questo colpo abbiamo affondato tutte le navi avversarie
         const allEnemySunk = opponentShips.length > 0 && opponentShips.every(s => {
             const cells = toArraySafe(s.cells);
             return cells.length > 0 && cells.every(([sr, sc]) => myShotsSet.has(key(sr, sc)));
@@ -1134,13 +1403,11 @@ function handleMultiplayerShot(r, c) {
 function checkWinConditionsMulti(data) {
     if (game.phase !== "battle" && game.phase !== "finished") return;
 
-    // 1. Controllo diretto del flag winner su Firebase
     if (data.winner) {
         finishGameMulti(data.winner === game.playerRole);
         return;
     }
 
-    // 2. Controllo di riserva sul conteggio navi affondate
     const opponentRole = game.playerRole === "p1" ? "p2" : "p1";
     const myData = data[game.playerRole] || {};
     const opponentData = data[opponentRole] || {};
@@ -1180,16 +1447,19 @@ function finishGameMulti(playerWon) {
     if (game.phase === "finished") return;
     game.phase = "finished";
 
+    const myFullTitle = formatFullTitle(game.myRank, game.playerName);
+    const oppFullTitle = formatFullTitle(game.opponentRank, game.opponentName);
+
     if (ui.resultTitle) ui.resultTitle.textContent = playerWon ? "Vittoria!" : "Sconfitta";
     if (ui.resultMessage) {
         ui.resultMessage.textContent = playerWon
-            ? "Hai distrutto la flotta avversaria!"
-            : "La tua flotta è stata affondata.";
+            ? `${myFullTitle}, hai distrutto la flotta di ${oppFullTitle}!`
+            : `${oppFullTitle} ha affondato tutta la tua flotta.`;
     }
     if (ui.turn) ui.turn.textContent = "Partita conclusa";
     setStatus(
         playerWon ? "Vittoria!" : "Sconfitta",
-        playerWon ? "Missione compiuta, Comandante!" : "Tutte le tue navi sono state affondate.",
+        playerWon ? `Missione compiuta, ${myFullTitle}!` : `Tutte le navi di ${myFullTitle} sono state affondate.`,
         playerWon ? "cyan" : "red"
     );
 
@@ -1272,7 +1542,7 @@ function renderBattleBoards() {
     if (game.mode === "single") {
         if (ui.playerShipsLeft) ui.playerShipsLeft.textContent = game.playerShips.filter(s => !s.sunk).length;
         if (ui.enemyShipsLeft) ui.enemyShipsLeft.textContent = game.enemyShips.filter(s => !s.sunk).length;
-        if (ui.turn) ui.turn.textContent = game.busy ? "Computer" : "Tuo turno";
+        if (ui.turn) ui.turn.textContent = game.busy ? "Computer" : `Turno di ${game.playerName}`;
     }
 }
 
@@ -1323,7 +1593,6 @@ if (ui.fullscreenToggle) {
 if (ui.roomMenuBtn && ui.roomConfirmDialog) {
     ui.roomMenuBtn.addEventListener("click", () => {
         playSound("click");
-        // Se siamo già nella schermata iniziale, non serve chiedere conferma
         if (game.phase === "room") return;
         ui.roomConfirmDialog.showModal();
     });
@@ -1332,8 +1601,15 @@ if (ui.roomMenuBtn && ui.roomConfirmDialog) {
 if (ui.confirmLeaveRoom) {
     ui.confirmLeaveRoom.addEventListener("click", () => {
         playSound("click");
-        if (game.mode === "multi" && game.roomCode && game.phase === "finished") {
-            remove(ref(db, `battaglia_rooms/${game.roomCode}`)).catch(() => { });
+        if (game.mode === "multi" && game.roomCode) {
+            if (game.phase === "finished") {
+                remove(ref(db, `battaglia_rooms/${game.roomCode}`)).catch(() => { });
+            } else if (game.playerRole) {
+                update(ref(db, `battaglia_rooms/${game.roomCode}/${game.playerRole}`), {
+                    connected: false,
+                    ready: false
+                }).catch(() => { });
+            }
         }
         location.reload();
     });

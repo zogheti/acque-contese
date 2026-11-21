@@ -662,6 +662,190 @@ margin-bottom: 9px;
     margin-top: 20px;
 }
 
+/* --- STILI LOBBY STANZE ATTIVE --- */
+
+.active-rooms-wrapper {
+    width: 100%;
+    background: rgba(11, 52, 73, 0.72);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    text-align: left;
+}
+
+.active-rooms-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+}
+
+.live-badge {
+    color: #56d7e9;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+}
+
+.active-rooms-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 210px;
+    overflow-y: auto;
+}
+
+.rooms-empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 16px 8px;
+}
+
+.room-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(6, 29, 43, 0.85);
+    border: 1px solid rgba(86, 215, 233, 0.28);
+    color: var(--text);
+    text-align: left;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+    .room-card:hover:not(:disabled) {
+        transform: translateY(-2px);
+        border-color: var(--cyan);
+        background: rgba(20, 82, 112, 0.9);
+    }
+
+    .room-card:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        border-color: var(--line);
+    }
+
+.room-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+    .room-card-info strong {
+        font-size: 13px;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .room-card-info small {
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+.room-card-badge {
+    flex: 0 0 auto;
+    padding: 5px 9px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: rgba(86, 215, 233, 0.16);
+    color: var(--cyan-soft);
+    border: 1px solid rgba(86, 215, 233, 0.35);
+}
+
+.room-card:disabled .room-card-badge {
+    background: rgba(255, 100, 95, 0.15);
+    color: #ff9a96;
+    border-color: rgba(255, 100, 95, 0.3);
+}
+
+/* --- FINESTRA DI ATTESA GIOCATORI --- */
+
+.waiting-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    max-width: 460px;
+    width: 100%;
+    padding: 22px 18px;
+    margin-top: 12px;
+    border-radius: 12px;
+    background: rgba(11, 52, 73, 0.72);
+    border: 1px solid var(--line);
+}
+
+.waiting-spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(86, 215, 233, 0.22);
+    border-top-color: var(--cyan);
+    animation: spin-waiting 0.9s linear infinite;
+}
+
+@keyframes spin-waiting {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.waiting-slots {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+}
+
+.waiting-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(6, 29, 43, 0.85);
+    border: 1px solid rgba(86, 215, 233, 0.25);
+}
+
+    .waiting-slot span {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+    }
+
+    .waiting-slot strong {
+        font-size: 14px;
+        color: var(--cyan-soft);
+        word-break: break-word;
+    }
+
+.waiting-counter {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gold);
+}
+
+@media (max-width: 480px) {
+    .waiting-slots {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (min-width: 1200px) {
     .board {
         width: min(100%, 530px);
